@@ -26,13 +26,13 @@ team_t team = {
     /* Team name */
     "ateam",
     /* First member's full name */
-    "Harry Bovik",
+    "1",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "2",
     /* Second member's full name (leave blank if none) */
-    "",
+    "3",
     /* Second member's email address (leave blank if none) */
-    ""
+    "4"
 };
 
 /* single word (4) or double word (8) alignment */
@@ -48,7 +48,15 @@ team_t team = {
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
-{
+{   
+    #define WSIZE 4
+    #define DSIZE 8
+    // 일반적으로 CHUNKSIZE 는 4096바이트 설정
+    #define CHUNKSIZE 1 << 12
+    #define MAX(a, b) ((x > ))
+    #define
+    #define
+
     return 0;
 }
 
