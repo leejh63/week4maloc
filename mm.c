@@ -47,14 +47,14 @@ team_t team = {
 #define WSIZE 4
 #define DSIZE 8
 // 일반적으로 CHUNKSIZE 는 4096바이트 설정 2의 12승
-#define CHUNKSIZE 1 << 12
+#define CHUNKSIZE (1 << 12)
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 #define PACK(size, alloc) ((size) | (alloc)) // 비트연산을 통해 값을 합쳐준다.
 
 #define GET(p) (*(unsigned int*)(p))
-#define PUT(p, val) (*(unsigned int*)(p) = val)
+#define PUT(p, val) (*(unsigned int*)(p) = (val))
 
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
@@ -64,6 +64,12 @@ team_t team = {
 
 #define NEXT_BLKP(bp) ((char*)(bp) + GET_SIZE(((char*)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char*)(bp) - GET_SIZE(((char*)(bp) - DSIZE)))
+
+static char *heap_listp;
+static void *coalesce(void *bp);
+static void *extend_heap(size_t words);
+static void *find_fit(size_t asize);
+static void place(void *bp, size_t asize);
 ///////////////////////////////////////////////////////////////////////////////////////
 
 // coalesce() 결합 로직
@@ -73,7 +79,7 @@ static void* coalesce(void* bp)
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
 
     //bp 다음 블록 할당여부
-    size_t next_alloc = GET_ALLOC(FTRP(NEXT_BLKP(bp)));
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     
     //bp 사이즈 정보
     size_t size = GET_SIZE(HDRP(bp));
@@ -84,7 +90,7 @@ static void* coalesce(void* bp)
     } // 2
     else if (prev_alloc && !next_alloc){ // 이전블럭 할당, 다음블럭 미할당
         //bp 사이즈 + 다음 블럭 사이즈
-        size += GET_SIZE(HRDP(NEXT_BLKP(bp)));
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         // bp 헤더에 사이즈/ 미할당 갱신
         PUT(HDRP(bp), PACK(size, 0));
         // bp 헤더가 이미 갱신됨 > bp의 풋터가 다음 블럭의 풋터
@@ -93,7 +99,7 @@ static void* coalesce(void* bp)
     } // 3
     else if (!prev_alloc && next_alloc){ // 이전블럭 미할당, 다음블럭 할당
         //bp 사이즈 + 다음 블럭 사이즈
-        size += GET_SIZE(HRDP(PREV_BLKP(bp)));
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         // bp 풋터에 우선 사이즈/ 미할당 갱신
         PUT(FTRP(bp), PACK(size, 0));
         // bp 이전 블럭 헤더 사이즈/ 미할당 갱신
@@ -118,7 +124,7 @@ static void* coalesce(void* bp)
 }
 
 // extend_heap() 힙영역 확장후 결합
-static extend_heap(size_t words)
+static void* extend_heap(size_t words)
 {
     char* bp;
     size_t size;
@@ -138,8 +144,10 @@ static extend_heap(size_t words)
 
 // 
 static void *find_fit(size_t asize)
-{
-    void *bp = mem_heap_lo() + 2 * WSIZE; // 첫번째 블록(주소: 힙의 첫 부분 + 8bytes)부터 탐색 시작
+{   // 기존 코드 - 에러발생
+    // void *bp = mem_heap_lo() + 2 * WSIZE; // 첫번째 블록(주소: 힙의 첫 부분 + 8bytes)부터 탐색 시작
+    // static char *heap_listp; 위에 전역변수 선언
+    void*bp = heap_listp;
     while (GET_SIZE(HDRP(bp)) > 0)
     {
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) // 가용 상태이고, 사이즈가 적합하면
@@ -157,7 +165,6 @@ static void place(void *bp, size_t asize)
     {
         PUT(HDRP(bp), PACK(asize, 1)); // 현재 블록에는 필요한 만큼만 할당
         PUT(FTRP(bp), PACK(asize, 1));
-        //????????? 왜지?
         PUT(HDRP(NEXT_BLKP(bp)), PACK((csize - asize), 0)); // 남은 크기를 다음 블록에 할당(가용 블록)
         PUT(FTRP(NEXT_BLKP(bp)), PACK((csize - asize), 0));
     }
@@ -172,8 +179,8 @@ static void place(void *bp, size_t asize)
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
-{   // 주소포인터 선언
-    char* heap_listp;
+{   // 주소포인터 선언을 밖에서 해줬기때문에 지워야한다!
+    // char* heap_listp;
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
 
@@ -202,13 +209,13 @@ void *mm_malloc(size_t size)
     char *bp;
 
     // 예외처리
-    if (size == 0)
+    if (size <= 0)
         return NULL;
 
     if (size <= DSIZE)     // 헤더, 푸터 8바이트 차지
         asize = 2 * DSIZE; // 
     else
-        asize = DSIZE * ((size + DSIZE + DSIZE - 1) / DSIZE); 
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE); 
         // 정수의 나눗셈은 내림처리를 해준다. 
         // size에 정렬이 부족한 바이트를 DSIZE - 1가 채워주는 느낌
         // 다시 DSIZE를 곱해주면 알맞은 값을 구할 수 있다.
@@ -261,7 +268,7 @@ void *mm_realloc(void *ptr, size_t size)
         return NULL; // 할당 실패
 
         /* 데이터 복사 */
-    size_t copySize = GET_SIZE(HDRP(ptr)) - DSIZE; // payload만큼 복사
+    size_t copySize = GET_SIZE(HDRP(ptr));         // payload만큼 복사
     if (size < copySize)                           // 기존 사이즈가 새 크기보다 더 크면
         copySize = size;                           // size로 크기 변경 (기존 메모리 블록보다 작은 크기에 할당하면, 일부 데이터만 복사)
 
