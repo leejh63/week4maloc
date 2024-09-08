@@ -128,7 +128,7 @@ static void* extend_heap(size_t words)
 {
     char* bp;
     size_t size;
-
+    // 짝수 일경우 0, 홀수일 경우 1
     size = (words % 2) ? (words+1)*WSIZE : words*WSIZE;
 
     if ((long)(bp = mem_sbrk(size)) == -1)
