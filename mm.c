@@ -280,6 +280,31 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
+// void *mm_realloc(void *ptr, size_t size)
+// {
+//     void *oldptr = ptr;
+//     void *newptr;
+//     size_t copySize;
+    
+//     newptr = mm_malloc(size);
+
+//     if (newptr == NULL)
+//       return NULL;
+//     // 아래 작동안됨
+//     // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+//     // 현 bp의 헤더를 찾을려면 4바이트 만큼 이동해야하지만 위 코드는 8바이트만큼 이동함 
+//     copySize = *(size_t *)((char *)oldptr - WSIZE);
+
+//     if (size < copySize)
+//       copySize = size;
+      
+//     memcpy(newptr, oldptr, copySize);
+
+//     mm_free(oldptr);
+
+//     return newptr;
+// }
+
 
 
 
