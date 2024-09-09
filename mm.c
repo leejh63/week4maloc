@@ -62,6 +62,7 @@ team_t team = {
 
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp)-WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp)-DSIZE)))
+
 static char *heap_listp;
 static char *free_listp;
 static void *coalesce_with_LIFO(void *bp);
@@ -74,30 +75,35 @@ static void *find_fit(size_t asize);
 
 /* for explicit*/ 
 // 이중 포인터 미사용 
-#define PREV_FREEP(bp) (*(unsigned int*)(bp))
-#define NEXT_FREEP(bp) (*(unsigned int*)(bp + WSIZE))
+// #define PREV_FREEP(bp) (*(unsigned int*)(bp))
+// #define NEXT_FREEP(bp) (*(unsigned int*)(bp + WSIZE))
 
 // 이중 포인터 사용
-// #define PREV_FREEP(bp) (*(void **)(bp))
-// #define NEXT_FREEP(bp) (*(void **)(bp + WSIZE))
+#define PREV_FREEP(bp) (*(void **)(bp))
+#define NEXT_FREEP(bp) (*(void **)(bp + WSIZE))
+#define INDEXA(bp) (*(void **)(bp))
+
+// 크기별 리스트 위치 포인터는 heap_listp로 진행
+
 
 /*  mm_init - initialize the malloc package  */
 int mm_init(void)
 { /* Create the initial empty heap */
 
-    if ((heap_listp = mem_sbrk(6 * WSIZE)) == (void *)-1) 
+    if ((heap_listp = mem_sbrk(8 * WSIZE)) == (void *)-1) 
         return -1;
     PUT(heap_listp, 0);                                
     PUT(heap_listp + (1 * WSIZE), PACK(DSIZE * 2, 1)); 
-    PUT(heap_listp + (2 * WSIZE), NULL);               
-    PUT(heap_listp + (3 * WSIZE), NULL);               
-    PUT(heap_listp + (4 * WSIZE), PACK(DSIZE * 2, 1)); 
-    PUT(heap_listp + (5 * WSIZE), PACK(0, 1));         
+    // for 문을 통해 특정 값을 받고 인덱스 늘려주기 
+    PUT(heap_listp + (2 * WSIZE), NULL);  //  ~32    
+    PUT(heap_listp + (3 * WSIZE), NULL);  // 33~64    
+    PUT(heap_listp + (4 * WSIZE), NULL);  // 65~128                
+    PUT(heap_listp + (5 * WSIZE), NULL);  // 129~inf
+    // 일단 고정 인덱스              
+    PUT(heap_listp + (6 * WSIZE), PACK(DSIZE * 2, 1)); 
+    PUT(heap_listp + (7 * WSIZE), PACK(0, 1));         
     heap_listp += (2 * WSIZE);
-    free_listp = heap_listp;
 
-    if (extend_heap(4) == NULL)
-        return -1;
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
     return 0;
@@ -221,29 +227,97 @@ void remove_in_freelist(void *bp)
         PREV_FREEP(NEXT_FREEP(bp)) = PREV_FREEP(bp);
     }
 }
+//////////////////////////////////////////////////////////////
+void put_front_of_freelist(void *bp) // 수정 필요
+{   
+    int asize = GET_SIZE(HDRP(bp));
+    int n = 0;
+    unsigned int power = 1;
+    
+    while (power <= asize) {
+        power <<= 1;  // 2의 제곱수를 구하기 위해 비트를 왼쪽으로 이동
+        n += 1;      // n 증가
+    }
+    
+    // // n을 사용하여 적절한 범위에 맞춰 주소를 선택
+    // void *bp; //= heap_listp + (n * WSIZE); // 간단히 n에 맞춰 가상 블록 포인터 계산
+    ////////// 맞는 범위 찾는 함수//////////
 
-void put_front_of_freelist(void *bp)
-{
-    NEXT_FREEP(bp) = free_listp;
+    if (asize <= 32) {
+        // ~32 범위: heap_listp + (2 * WSIZE)
+        free_listp = heap_listp + (2 * WSIZE);
+
+    } else if (asize <= 64) {
+        // 33~64 범위: heap_listp + (3 * WSIZE)
+        free_listp = heap_listp + (3 * WSIZE);
+
+    } else if (asize <= 128) {
+        // 65~128 범위: heap_listp + (4 * WSIZE)
+        free_listp = heap_listp + (4 * WSIZE);
+
+    } else {
+        // 129~inf 범위: heap_listp + (5 * WSIZE)
+        free_listp = heap_listp + (5 * WSIZE);
+    }
+    /////////////////////////////////////////////////
+
+    NEXT_FREEP(bp) = INDEXA(free_listp);
     PREV_FREEP(bp) = NULL;
-    PREV_FREEP(free_listp) = bp;
-    free_listp = bp; //
+    PREV_FREEP(INDEXA(free_listp)) = INDEXA(bp);
+    free_listp = bp; 
 }
 
 
-static void *find_fit(size_t asize) //
+// from chat gpt
+static void *find_fit(size_t asize) 
 {
-    for (void *bp = free_listp; GET_ALLOC(HDRP(bp)) != 1; bp = NEXT_FREEP(bp))
+    // 주어진 asize와 비교하기 위해 n값을 구함
+    int n = 0;
+    unsigned int power = 1;
+    void *bp;
+
+    while (power <= asize) {
+        power <<= 1;  // 2의 제곱수를 구하기 위해 비트를 왼쪽으로 이동
+        n += 1;      // n 증가
+    }
+    
+    // // n을 사용하여 적절한 범위에 맞춰 주소를 선택
+    void *bp; //= heap_listp + (n * WSIZE); // 간단히 n에 맞춰 가상 블록 포인터 계산
+    ////////// 맞는 범위 찾는 함수//////////
+
+    if (asize <= 32) {
+        // ~32 범위: heap_listp + (2 * WSIZE)
+        bp = heap_listp + (2 * WSIZE);
+
+    } else if (asize <= 64) {
+        // 33~64 범위: heap_listp + (3 * WSIZE)
+        bp = heap_listp + (3 * WSIZE);
+
+    } else if (asize <= 128) {
+        // 65~128 범위: heap_listp + (4 * WSIZE)
+        bp = heap_listp + (4 * WSIZE);
+
+    } else {
+        // 129~inf 범위: heap_listp + (5 * WSIZE)
+        bp = heap_listp + (5 * WSIZE);
+    }
+    /////////////////////////////////////////////////
+
+    while (bp != NULL)
     {
+        // 현재 블록의 사이즈 확인 (헤더에서 가져오기)
         if (asize <= GET_SIZE(HDRP(bp)))
         {
-            return bp;
+            return bp; // 적합한 블록을 찾으면 반환
         }
+
+        // 다음 블록으로 이동 (실제 구현에 맞게 수정 필요)
+        bp = (char *)bp + WSIZE; // 임시로 다음 블록으로 이동
     }
-    return NULL; 
 
+    return NULL;  // 적합한 블록을 찾지 못한 경우 NULL 반환
 }
-
+/////////////////////////////////////////////////////////////////////////
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
@@ -280,6 +354,7 @@ void *mm_realloc(void *ptr, size_t size)
       copySize = size;
     
     memcpy(newptr, oldptr, copySize);
+
     mm_free(oldptr);
 
     return newptr;
