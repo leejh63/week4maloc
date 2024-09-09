@@ -17,7 +17,7 @@
 
 #include "mm.h"
 #include "memlib.h"
-// 테스트입니다.아닙니다.
+
 /*********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
  * provide your team information in the following struct.
