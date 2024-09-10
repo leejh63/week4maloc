@@ -64,18 +64,17 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp)-DSIZE)))
 static char *heap_listp;
 static char *free_listp;
-static void *coalesce_with_LIFO(void *bp);
 void remove_in_freelist(void *bp);
-void put_front_of_freelist(void *bp);
 static void *extend_heap(size_t words);
 void *mm_malloc(size_t size);
 static void place(void *bp, size_t asize);
 static void *find_fit(size_t asize);
+static int free_pos(size_t asize);
 
 /* for explicit*/ 
 // 이중 포인터 미사용 
-#define PREV_FREEP(bp) (*(unsigned int*)(bp))
-#define NEXT_FREEP(bp) (*(unsigned int*)(bp + WSIZE))
+#define ADBL(bp) (*(void**)(bp))
+
 
 // 이중 포인터 사용
 // #define PREV_FREEP(bp) (*(void **)(bp))
@@ -84,22 +83,21 @@ static void *find_fit(size_t asize);
 /*  mm_init - initialize the malloc package  */
 int mm_init(void)
 { /* Create the initial empty heap */
-
-    if ((heap_listp = mem_sbrk(6 * WSIZE)) == (void *)-1) 
+    if ((heap_listp = mem_sbrk(16 * WSIZE)) == (void *)-1) 
         return -1;
     PUT(heap_listp, 0);                                
-    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE * 2, 1)); 
-    PUT(heap_listp + (2 * WSIZE), NULL);               
-    PUT(heap_listp + (3 * WSIZE), NULL);               
-    PUT(heap_listp + (4 * WSIZE), PACK(DSIZE * 2, 1)); 
-    PUT(heap_listp + (5 * WSIZE), PACK(0, 1));         
-    heap_listp += (2 * WSIZE);
-    free_listp = heap_listp;
+    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE * 2, 1));
 
-    if (extend_heap(4) == NULL)
-        return -1;
-    if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
-        return -1;
+    for (int i = 2; i <= 12; i++)
+    {
+        PUT(heap_listp + (i * WSIZE), NULL); 
+    }
+
+    PUT(heap_listp + (13 * WSIZE), PACK(DSIZE * 2, 1));
+    PUT(heap_listp + (14 * WSIZE), 0); 
+    PUT(heap_listp + (15 * WSIZE), PACK(0, 1));         
+    heap_listp += (2 * WSIZE);
+
     return 0;
 }
 /*
@@ -108,9 +106,11 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
+    
     size_t asize;      
     size_t extendsize; 
     char *bp;
+    void *bpp;
 
     if (size == 0)
         return NULL;
@@ -120,17 +120,21 @@ void *mm_malloc(size_t size)
         asize = 2 * DSIZE;
     else
         asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE); 
-
-    if ((bp = find_fit(asize)) != NULL)
+    if ((bpp = find_fit(asize)) != NULL)
     {
-        place(bp, asize); 
-        return bp; 
+        bp = ADBL(bpp);
+        // if (bp != NULL){
+        //     remove_in_freelist(bpp);
+        //     return bp; 
+        // }
+
+    }
+    extendsize = MAX(1 << free_pos(asize), CHUNKSIZE);  
+    // extendsize = 1 << free_pos(asize);
+    if ((bp = extend_heap(extendsize / WSIZE)) == NULL) {
+        return NULL;
     }
 
-    extendsize = MAX(asize, CHUNKSIZE);   
-    if ((bp = extend_heap(extendsize / WSIZE)) == NULL) 
-        return NULL;
-    place(bp, asize);
     return bp;
 }
 
@@ -144,20 +148,8 @@ static void* extend_heap(size_t words)
     if ((long)(bp = mem_sbrk(size)) == -1)
         return NULL;
     
-    PUT(HDRP(bp),PACK(size, 0));
 
-    // 아래 코드 넣어주면 에러가 난다.. 이유를 모르겠다..
-    // //--임시--
-    // PUT(bp, NULL); 
-    // PUT(free_listp, bp);
-    // PUT(NEXT_FREEP(bp), free_listp);
-    // free_listp = bp;
-    // //--
-
-    PUT(FTRP(bp),PACK(size, 0));
-    PUT(HDRP(NEXT_BLKP(bp)),PACK(0, 1));
-
-    return coalesce_with_LIFO(bp);
+    return bp;
 
 }
 
@@ -166,103 +158,47 @@ void mm_free(void *ptr)
     size_t size = GET_SIZE(HDRP(ptr));
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), PACK(size, 0));
-    coalesce_with_LIFO(ptr);
+
 }
 
-static void *coalesce_with_LIFO(void *ptr)
+
+//------------
+static int free_pos(size_t asize){
+    int n = 0;
+    unsigned int power = 1;
+    while (power < asize) {
+        power <<= 1;  
+        n += 1;
+        if (n >= 12)
+            break;
+    return n;
+    }
+}
+/////////////////////////////////////
+static void *find_fit(size_t asize) //
 {
-    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(ptr)));
-    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(ptr)));
-    size_t size = GET_SIZE(HDRP(ptr));
 
-    if (!prev_alloc && !next_alloc)
-    {// case4
-        remove_in_freelist(PREV_BLKP(ptr));
-        remove_in_freelist(NEXT_BLKP(ptr));
+    void* block_pointer;
+    int n = free_pos(asize);
 
-        size += GET_SIZE(HDRP(PREV_BLKP(ptr))) +
-                GET_SIZE(FTRP(NEXT_BLKP(ptr)));
-        PUT(HDRP(PREV_BLKP(ptr)), PACK(size, 0));
-        PUT(FTRP(NEXT_BLKP(ptr)), PACK(size, 0));
-        ptr = PREV_BLKP(ptr);
+    block_pointer = heap_listp + ((n+2) * WSIZE);
+    // 위치제대로 되는지 다시한번 검증
+
+    if (block_pointer == NULL){// 역참조?
+        return NULL;
     }
-    else if (prev_alloc && !next_alloc)
-    { // case 2
+    
+    return block_pointer; 
 
-        remove_in_freelist(NEXT_BLKP(ptr));
-        size += GET_SIZE(HDRP(NEXT_BLKP(ptr)));
-        PUT(HDRP(ptr), PACK(size, 0));
-        PUT(FTRP(ptr), PACK(size, 0));
-
-    }
-    else if (!prev_alloc && next_alloc)
-    { // case3
-        remove_in_freelist(PREV_BLKP(ptr));
-        size += GET_SIZE(HDRP(PREV_BLKP(ptr)));
-        ptr = PREV_BLKP(ptr);
-        PUT(HDRP(ptr), PACK(size, 0));
-        PUT(FTRP(ptr), PACK(size, 0));
-    }
-    put_front_of_freelist(ptr);
-    return ptr;
 }
+/////////////////////////
 
 void remove_in_freelist(void *bp)
 {
-    if (bp == free_listp)
-    {
-        PREV_FREEP(NEXT_FREEP(bp)) = NULL;
-        free_listp = NEXT_FREEP(bp);
-    }
-
-    else
-    {
-        NEXT_FREEP(PREV_FREEP(bp)) = NEXT_FREEP(bp);
-        PREV_FREEP(NEXT_FREEP(bp)) = PREV_FREEP(bp);
-    }
+    ADBL(bp) = ADBL(ADBL(bp));
 }
+//-------------
 
-void put_front_of_freelist(void *bp)
-{
-    NEXT_FREEP(bp) = free_listp;
-    PREV_FREEP(bp) = NULL;
-    PREV_FREEP(free_listp) = bp;
-    free_listp = bp; //
-}
-
-
-static void *find_fit(size_t asize) //
-{
-    for (void *bp = free_listp; GET_ALLOC(HDRP(bp)) != 1; bp = NEXT_FREEP(bp))
-    {
-        if (asize <= GET_SIZE(HDRP(bp)))
-        {
-            return bp;
-        }
-    }
-    return NULL; 
-
-}
-
-static void place(void *bp, size_t asize)
-{
-    size_t csize = GET_SIZE(HDRP(bp));
-    remove_in_freelist(bp);
-    if ((csize - asize) >= (2 * DSIZE))
-    {
-        PUT(HDRP(bp), PACK(asize, 1));
-        PUT(FTRP(bp), PACK(asize, 1));
-        bp = NEXT_BLKP(bp);
-        PUT(HDRP(bp), PACK(csize - asize, 0));
-        PUT(FTRP(bp), PACK(csize - asize, 0));
-        put_front_of_freelist(bp);
-    }
-    else // 
-    {
-        PUT(HDRP(bp), PACK(csize, 1));
-        PUT(FTRP(bp), PACK(csize, 1));
-    }
-}
 
 void *mm_realloc(void *ptr, size_t size)
 {
