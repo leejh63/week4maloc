@@ -62,6 +62,7 @@ team_t team = {
 
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp)-WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp)-DSIZE)))
+
 static char *heap_listp;
 static char *free_listp;
 static void *coalesce(void *bp);
@@ -136,7 +137,7 @@ void *mm_malloc(size_t size)
 
 static void* extend_heap(size_t words)
 {
-    char* bp;
+    void* bp;
     size_t size;
 
     size = (words % 2) ? (words+1)*WSIZE : words*WSIZE;
@@ -145,15 +146,6 @@ static void* extend_heap(size_t words)
         return NULL;
     
     PUT(HDRP(bp),PACK(size, 0));
-
-    // 아래 코드 넣어주면 에러가 난다.. 이유를 모르겠다..
-    // //--기존 코드
-    // PUT(bp, NULL); 
-    // PUT(free_listp, bp);
-    // PUT(NEXT_FREEP(bp), free_listp);
-    // free_listp = bp;
-    // //--
-
     PUT(FTRP(bp),PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)),PACK(0, 1));
 
@@ -161,50 +153,49 @@ static void* extend_heap(size_t words)
 
 }
 
-void mm_free(void *ptr)
+void mm_free(void *bp)
 {
-    size_t size = GET_SIZE(HDRP(ptr));
-    PUT(HDRP(ptr), PACK(size, 0));
-    PUT(FTRP(ptr), PACK(size, 0));
-    coalesce(ptr);
+    size_t size = GET_SIZE(HDRP(bp));
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+    coalesce(bp);
 }
 
-static void *coalesce(void *ptr)
+static void *coalesce(void *bp)
 {
-    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(ptr)));
-    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(ptr)));
-    size_t size = GET_SIZE(HDRP(ptr));
+    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
 
     if (!prev_alloc && !next_alloc)
     {// case4
-        removefreelist(PREV_BLKP(ptr));
-        removefreelist(NEXT_BLKP(ptr));
+        removefreelist(PREV_BLKP(bp));
+        removefreelist(NEXT_BLKP(bp));
 
-        size += GET_SIZE(HDRP(PREV_BLKP(ptr))) +
-                GET_SIZE(FTRP(NEXT_BLKP(ptr)));
-        PUT(HDRP(PREV_BLKP(ptr)), PACK(size, 0));
-        PUT(FTRP(NEXT_BLKP(ptr)), PACK(size, 0));
-        ptr = PREV_BLKP(ptr);
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
     }
     else if (prev_alloc && !next_alloc)
     { // case 2
 
-        removefreelist(NEXT_BLKP(ptr));
-        size += GET_SIZE(HDRP(NEXT_BLKP(ptr)));
-        PUT(HDRP(ptr), PACK(size, 0));
-        PUT(FTRP(ptr), PACK(size, 0));
+        removefreelist(NEXT_BLKP(bp));
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
 
     }
     else if (!prev_alloc && next_alloc)
     { // case3
-        removefreelist(PREV_BLKP(ptr));
-        size += GET_SIZE(HDRP(PREV_BLKP(ptr)));
-        ptr = PREV_BLKP(ptr);
-        PUT(HDRP(ptr), PACK(size, 0));
-        PUT(FTRP(ptr), PACK(size, 0));
+        removefreelist(PREV_BLKP(bp));
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        bp = PREV_BLKP(bp);
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
     }
-    putfreelist(ptr);
-    return ptr;
+    putfreelist(bp);
+    return bp;
 }
 
 void removefreelist(void *bp)
@@ -229,18 +220,28 @@ void putfreelist(void *bp)
     free_listp = bp; //
 }
 
+static void *find_fit(size_t asize)
+{   
+    void*bp = free_listp;
 
-static void *find_fit(size_t asize) //
-{
-    for (void *bp = free_listp; GET_ALLOC(HDRP(bp)) != 1; bp = NEXT_FREEP(bp))
+    // while 문 사용
+    while (GET_ALLOC(HDRP(bp)) != 1)
     {
-        if (asize <= GET_SIZE(HDRP(bp)))
-        {
-            return bp;
-        }
+        if (asize <= GET_SIZE(HDRP(bp))) 
+            return bp;                                            
+        bp = NEXT_FREEP(bp);                                        
     }
-    return NULL; 
 
+    // for문 사용
+    // for (void *bp = free_listp; GET_ALLOC(HDRP(bp)) != 1; bp = NEXT_FREEP(bp))
+    // {
+    //     if (asize <= GET_SIZE(HDRP(bp)))
+    //     {
+    //         return bp;
+    //     }
+    // }
+
+    return NULL;
 }
 
 static void place(void *bp, size_t asize)
