@@ -178,8 +178,7 @@ static void place(void *bp, size_t asize)
 
 
 int mm_init(void)
-{   // 주소포인터 선언을 밖에서 해줬기때문에 지워야한다!
-    // char* heap_listp;
+{   
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
 
