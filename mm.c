@@ -64,9 +64,9 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp)-DSIZE)))
 static char *heap_listp;
 static char *free_listp;
-static void *coalesce_with_LIFO(void *bp);
-void remove_in_freelist(void *bp);
-void put_front_of_freelist(void *bp);
+static void *coalesce(void *bp);
+void removefreelist(void *bp);
+void putfreelist(void *bp);
 static void *extend_heap(size_t words);
 void *mm_malloc(size_t size);
 static void place(void *bp, size_t asize);
@@ -147,7 +147,7 @@ static void* extend_heap(size_t words)
     PUT(HDRP(bp),PACK(size, 0));
 
     // 아래 코드 넣어주면 에러가 난다.. 이유를 모르겠다..
-    // //--임시--
+    // //--기존 코드
     // PUT(bp, NULL); 
     // PUT(free_listp, bp);
     // PUT(NEXT_FREEP(bp), free_listp);
@@ -157,7 +157,7 @@ static void* extend_heap(size_t words)
     PUT(FTRP(bp),PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)),PACK(0, 1));
 
-    return coalesce_with_LIFO(bp);
+    return coalesce(bp);
 
 }
 
@@ -166,10 +166,10 @@ void mm_free(void *ptr)
     size_t size = GET_SIZE(HDRP(ptr));
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), PACK(size, 0));
-    coalesce_with_LIFO(ptr);
+    coalesce(ptr);
 }
 
-static void *coalesce_with_LIFO(void *ptr)
+static void *coalesce(void *ptr)
 {
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(ptr)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(ptr)));
@@ -177,8 +177,8 @@ static void *coalesce_with_LIFO(void *ptr)
 
     if (!prev_alloc && !next_alloc)
     {// case4
-        remove_in_freelist(PREV_BLKP(ptr));
-        remove_in_freelist(NEXT_BLKP(ptr));
+        removefreelist(PREV_BLKP(ptr));
+        removefreelist(NEXT_BLKP(ptr));
 
         size += GET_SIZE(HDRP(PREV_BLKP(ptr))) +
                 GET_SIZE(FTRP(NEXT_BLKP(ptr)));
@@ -189,7 +189,7 @@ static void *coalesce_with_LIFO(void *ptr)
     else if (prev_alloc && !next_alloc)
     { // case 2
 
-        remove_in_freelist(NEXT_BLKP(ptr));
+        removefreelist(NEXT_BLKP(ptr));
         size += GET_SIZE(HDRP(NEXT_BLKP(ptr)));
         PUT(HDRP(ptr), PACK(size, 0));
         PUT(FTRP(ptr), PACK(size, 0));
@@ -197,24 +197,23 @@ static void *coalesce_with_LIFO(void *ptr)
     }
     else if (!prev_alloc && next_alloc)
     { // case3
-        remove_in_freelist(PREV_BLKP(ptr));
+        removefreelist(PREV_BLKP(ptr));
         size += GET_SIZE(HDRP(PREV_BLKP(ptr)));
         ptr = PREV_BLKP(ptr);
         PUT(HDRP(ptr), PACK(size, 0));
         PUT(FTRP(ptr), PACK(size, 0));
     }
-    put_front_of_freelist(ptr);
+    putfreelist(ptr);
     return ptr;
 }
 
-void remove_in_freelist(void *bp)
+void removefreelist(void *bp)
 {
     if (bp == free_listp)
     {
         PREV_FREEP(NEXT_FREEP(bp)) = NULL;
         free_listp = NEXT_FREEP(bp);
     }
-
     else
     {
         NEXT_FREEP(PREV_FREEP(bp)) = NEXT_FREEP(bp);
@@ -222,7 +221,7 @@ void remove_in_freelist(void *bp)
     }
 }
 
-void put_front_of_freelist(void *bp)
+void putfreelist(void *bp)
 {
     NEXT_FREEP(bp) = free_listp;
     PREV_FREEP(bp) = NULL;
@@ -247,7 +246,7 @@ static void *find_fit(size_t asize) //
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
-    remove_in_freelist(bp);
+    removefreelist(bp);
     if ((csize - asize) >= (2 * DSIZE))
     {
         PUT(HDRP(bp), PACK(asize, 1));
@@ -255,7 +254,7 @@ static void place(void *bp, size_t asize)
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(csize - asize, 0));
         PUT(FTRP(bp), PACK(csize - asize, 0));
-        put_front_of_freelist(bp);
+        putfreelist(bp);
     }
     else // 
     {
@@ -274,7 +273,7 @@ void *mm_realloc(void *ptr, size_t size)
     if (newptr == NULL)
       return NULL;
     
-    copySize = *(size_t *)((char *)oldptr - WSIZE);
+    copySize = *(size_t *)((char *)oldptr - WSIZE); // DSIZE 아님
 
     if (size < copySize)
       copySize = size;
